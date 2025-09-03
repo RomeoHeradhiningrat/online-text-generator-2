@@ -1,48 +1,52 @@
 import os
 from flask import Flask, request, jsonify
-from telegram import Bot, Update
 from flask_cors import CORS
-from datetime import datetime
+from telegram import Bot, Update
+from datetime import datetime, timezone
 
 app = Flask(__name__)
-CORS(app)  # izinkan frontend fetch dari domain manapun
+CORS(app)
 
-# Masukkan token bot langsung atau dari env variable
-TOKEN = os.getenv("BOT_TOKEN") or "7411297347:AAGfiR6tVSY8vMNmI62UK_GA6fgvxEYLC9g"
+# Token bot
+TOKEN = "7411297347:AAGfiR6tVSY8vMNmI62UK_GA6fgvxEYLC9g"
 bot = Bot(token=TOKEN)
 
-# Variabel global untuk menyimpan pesan terbaru
-latest_text = "Belum ada pesan masuk."
-latest_from = None
-latest_updated_at = None
+# Simpan pesan terakhir (maks 50)
+MESSAGES = []
+MAX_MESSAGES = 50
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
 
 @app.route('/')
 def index():
-    return f"<h1>Pesan Terbaru:</h1><p>{latest_text}</p>"
+    return "<h1>Backend Telegram History Running!</h1>"
 
-# Endpoint webhook Telegram
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
-    global latest_text, latest_from, latest_updated_at
-    update = Update.de_json(request.get_json(force=True), bot)
+    data = request.get_json(force=True)
+    update = Update.de_json(data, bot)
 
     if update.message and update.message.text:
-        latest_text = update.message.text
         sender = update.message.from_user
-        latest_from = f"{sender.first_name} {sender.last_name or ''}".strip() or sender.username
-        latest_updated_at = datetime.utcnow().isoformat()
-
+        sender_name = f"{sender.first_name or ''} {sender.last_name or ''}".strip() or sender.username or str(sender.id)
+        MESSAGES.append({
+            "text": update.message.text,
+            "from": sender_name,
+            "timestamp": now_iso()
+        })
+        # Keep only last MAX_MESSAGES
+        if len(MESSAGES) > MAX_MESSAGES:
+            MESSAGES.pop(0)
     return "ok", 200
 
-# Endpoint untuk frontend fetch
-@app.route('/latest')
+@app.route("/latest")
 def latest():
-    return jsonify({
-        "text": latest_text,
-        "from": latest_from,
-        "updated_at": latest_updated_at
-    })
+    return jsonify(MESSAGES)
+
+@app.route("/health")
+def health():
+    return "ok", 200
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=8080)
